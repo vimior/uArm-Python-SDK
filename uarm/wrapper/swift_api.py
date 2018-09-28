@@ -56,6 +56,30 @@ class SwiftAPI(object):
         return self._arm.power_status
 
     @property
+    def mode(self):
+        return self._arm.mode
+
+    @property
+    def error(self):
+        return self._arm.error
+
+    @error.setter
+    def error(self, error):
+        self._arm.error = error
+
+    @property
+    def temperature(self):
+        return self._arm.temperature
+
+    @property
+    def blocked(self):
+        return self._arm.blocked
+
+    @blocked.setter
+    def blocked(self, value):
+        self._arm.blocked = value
+
+    @property
     def device_type(self):
         return self._arm.device_type
 
@@ -66,6 +90,12 @@ class SwiftAPI(object):
     @property
     def firmware_version(self):
         return self._arm.firmware_version
+
+    def set_property(self, key, value):
+        self._arm.set_property(key, value)
+
+    def get_property(self, key):
+        return self._arm.get_property(key)
 
     def connect(self, port=None, baudrate=None, timeout=None):
         """
@@ -134,21 +164,24 @@ class SwiftAPI(object):
         :return: {
             "device_type": "SwiftPro",
             "hardware_version": "3.2.0",
-            "firmware_version": "3.3.0",
+            ", QU": "3.3.0",
             "api_version": "3.2.0",
             "device_unique": "D43639DB0CEE"
         }
         """
         return self._arm.get_device_info(timeout=timeout)
 
-    def reset(self, speed=None, wait=True, timeout=None):
+    def reset(self, speed=None, wait=True, timeout=None, x=200, y=0, z=150):
         """
         Reset the uArm
         :param speed: reset speed, default is the last speed in use or 1000
         :param wait: True/False, deault is True
         :param timeout: timeout, default is 10s
+        :param x: reset-position-x, default is 200
+        :param y: reset-position-y, default is 0
+        :param z: reset-position-z, default is 150
         """
-        return self._arm.reset(speed=speed, wait=wait, timeout=timeout)
+        return self._arm.reset(speed=speed, wait=wait, timeout=timeout, x=x, y=y, z=z)
 
     def get_mode(self, wait=True, timeout=None, callback=None):
         """
@@ -211,7 +244,7 @@ class SwiftAPI(object):
     def set_polar(self, stretch=None, rotation=None, height=None, speed=None, relative=False, wait=False, timeout=10, callback=None, **kwargs):
         """
         Set the polar coordinate
-        :param stretch: (mm), default is the last stretch in use or 150
+        :param stretch: (mm), default is the last stretch in use or 200
         :param rotation: (degree), default is the last rotation in use or 90
         :param height: (mm), default is the last height in use or 150
         :param speed: (mm/min) speed of move, default is the last speed in use or 1000
@@ -330,6 +363,30 @@ class SwiftAPI(object):
         :return: 'OK' or 'TIMEOUT' if wait is True else None
         """
         return self._arm.set_gripper(catch=catch, wait=wait, timeout=timeout, check=check, callback=callback)
+
+    def set_digital_output(self, pin=None, value=None, wait=True, timeout=None, callback=None):
+        """
+        Set digital output value
+        :param pin: pin
+        :param value: digital value
+        :param wait: True/False, deault is True
+        :param timeout: timeout, default is use the default cmd timeout
+        :param callback: callback, deault is None 
+        :return: 'OK'/'Ex' or 'TIMEOUT' if wait is True else None 
+        """
+        return self._arm.set_digital_output(pin=pin, value=value, wait=wait, timeout=timeout, callback=callback)
+
+    def set_digital_direction(self, pin=None, value=None, wait=True, timeout=None, callback=None):
+        """
+        Set digital direction
+        :param pin: pin
+        :param value: 0: input, 1: output
+        :param wait: True/False, deault is True
+        :param timeout: timeout, default is use the default cmd timeout
+        :param callback: callback, deault is None 
+        :return: 'OK' or 'TIMEOUT' if wait is True else None 
+        """
+        return self._arm.set_digital_direction(pin=pin, value=value, wait=wait, timeout=timeout, callback=callback)
 
     def get_analog(self, pin=0, wait=True, timeout=None, callback=None):
         """
@@ -639,7 +696,7 @@ class SwiftAPI(object):
         :param speed: feeding or move speed, default is the last speed in use or 1000
         :param relative: relative or not, default is True, if you set it to False, you must calc the distance of feeding
         :param x: move postition-X, default is None, not move it
-        :param y: move postition-Y, default is None, not move it
+        :param : move postition-Y, default is None, not move it
         :param z: move postition-Z, default is None, not move it
         :param wait: True/False, deault is True
         :param timeout: timeout, default is 30s
@@ -651,7 +708,7 @@ class SwiftAPI(object):
 
     def set_acceleration(self, acc=None, wait=True, timeout=None, callback=None):
         """
-        Set the acceleration
+        Set the acceleration, only support firmware version > 4.0
         :param acc: acc value
         :param wait: True/False, deault is True
         :param timeout: timeout, default is use the default cmd timeout
@@ -681,3 +738,41 @@ class SwiftAPI(object):
                                           min_travel_feedrate=min_travel_feedrate, min_segment_time=min_segment_time,
                                           max_xy_jerk=max_xy_jerk, max_z_jerk=max_z_jerk, max_e_jerk=max_e_jerk)
 
+    def coordinate_to_angles(self, x=None, y=None, z=None, wait=True, timeout=None, callback=None):
+        """
+        Convert coordinate to angles
+        :param x: 
+        :param y: 
+        :param z: 
+        :param wait: True/False, deault is True
+        :param timeout: timeout, default is use the default cmd timeout
+        :param callback: callback, deault is None
+        :return: [bottom_angle, left_angle, right_angle] or 'TIMEOUT' or 'Ex' if wait is True else None
+        """
+        return self._arm.coordinate_to_angles(x=x, y=y, z=z, wait=wait, timeout=timeout, callback=callback)
+
+    def angles_to_coordinate(self, angles=None, wait=True, timeout=None, callback=None):
+        """
+        Convert angles to coordinate
+        :param angles: [bottom_angle, left_angle, right_angle]
+        :param wait: True/False, deault is True
+        :param timeout: timeout, default is use the default cmd timeout
+        :param callback: callback, deault is None 
+        :return: [x, y, z] or 'TIMEOUT' or 'Ex' if wait is True else None
+        """
+        return self._arm.angles_to_coordinate(angles=angles, wait=wait, timeout=timeout, callback=callback)
+
+    def check_pos_is_limit(self, pos=None, is_polar=False, wait=True, timeout=None, callback=None):
+        """
+        Check pos is in limit
+        :param pos: [x, y, z] if is_polar is False else [strech, rotation, height]
+        :param is_polar: pos is polar coordinate or not
+        :param wait: True/False, deault is True
+        :param timeout: timeout, default is use the default cmd timeout
+        :param callback: callback, deault is None 
+        :return: True/False or 'TIMEOUT' if wait is True else None
+        """
+        return self._arm.check_pos_is_limit(pos=pos, is_polar=is_polar, wait=wait, timeout=timeout, callback=callback)
+
+    def set_height_offset(self, offset='', wait=True, timeout=None, callback=None):
+        return self._arm.set_height_offset(offset=offset, wait=wait, timeout=timeout, callback=callback)

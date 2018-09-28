@@ -74,6 +74,8 @@ class Swift(Pump, Keys, Gripper, Grove):
         self.report_position = []
         self.is_moving = False
 
+        self._error = None
+
         self._position = [200, 0, 150, 5000]  # [x, y, z, speed]
         self._polar = [200, 90, 150, 5000]  # [stretch, rotation, height, speed]
         self._angle_speed = 2000
@@ -146,12 +148,6 @@ class Swift(Pump, Keys, Gripper, Grove):
             except Exception as e:
                 pass
 
-            # try:
-            #     asyncio.set_event_loop(self._asyncio_loop)
-            #     self._asyncio_loop_alive = True
-            #     self._asyncio_loop.run_forever()
-            # except:
-            #     pass
             self._asyncio_loop_alive = False
 
     def run_callback(self, callback, msg, enable_callback_thread=True):
@@ -277,8 +273,8 @@ class Swift(Pump, Keys, Gripper, Grove):
                         self._target_temperature = float(t2)
                         if self._current_temperature >= self._target_temperature:
                             self._blocked = False
-
             elif line.startswith('Error'):
+                self._error = line
                 logger.error(line)
 
     def _handle_report(self, line):
@@ -355,6 +351,32 @@ class Swift(Pump, Keys, Gripper, Grove):
     def blocked(self):
         return self._blocked
 
+    @blocked.setter
+    def blocked(self, value):
+        self._blocked = value
+
+    @property
+    def temperature(self):
+        return {
+            'current_temperature': self._current_temperature,
+            'target_temperature': self._target_temperature
+        }
+
+    @property
+    def error(self):
+        return self._error
+
+    @error.setter
+    def error(self, error):
+        self._error = error
+
+    def set_property(self, key, value):
+        if hasattr(self, key):
+            setattr(self, key, value)
+
+    def get_property(self, key):
+        return getattr(self, key, None)
+
     @catch_exception
     def waiting_ready(self, timeout=5):
         start_time = time.time()
@@ -398,6 +420,8 @@ class Swift(Pump, Keys, Gripper, Grove):
         self.is_moving = False
         self.cmd_pend = {}
 
+        self._error = None
+
         self._position = [200, 0, 150, 10000]
         self._polar = [200, 90, 150, 10000]
         self._angle_speed = 2000
@@ -438,8 +462,8 @@ class Swift(Pump, Keys, Gripper, Grove):
 
         def timeout_cb(self):
             self.delete()
-            if self.debug:
-                logger.warn('{} cmd "#{} {}" timeout'.format(self.owner.port, self.cnt, self.msg))
+            # if self.debug:
+            #     logger.warn('{} cmd "#{} {}" timeout'.format(self.owner.port, self.cnt, self.msg))
             self.ret.put(protocol.TIMEOUT)
 
         def delete(self):
@@ -458,6 +482,8 @@ class Swift(Pump, Keys, Gripper, Grove):
             self.ret.put(msg)
 
         def get_ret(self):
+            while self.ret.empty():
+                time.sleep(0.002)
             return self.ret.get()
 
     @catch_exception
@@ -481,12 +507,12 @@ class Swift(Pump, Keys, Gripper, Grove):
                     self.cmd_pend_c.wait(0.01)
             cmd = self.Cmd(self, self._cnt, msg, timeout, callback, debug=debug, enable_callback_thread=enable_callback_thread)
             self.cmd_pend[self._cnt] = cmd
-            self.serial.write({
-                'cmd': cmd,
-                'msg': '#{cnt} {msg}'.format(cnt=self._cnt, msg=msg)
-            })
-            # cmd.start()
-            # self.serial.write('#{cnt} {msg}'.format(cnt=self._cnt, msg=msg))
+            # self.serial.write({
+            #     'cmd': cmd,
+            #     'msg': '#{cnt} {msg}'.format(cnt=self._cnt, msg=msg)
+            # })
+            cmd.start()
+            self.serial.write('#{cnt} {msg}'.format(cnt=self._cnt, msg=msg))
             self._cnt += 1
             if self._cnt == 10000:
                 self._cnt = 1
@@ -566,10 +592,10 @@ class Swift(Pump, Keys, Gripper, Grove):
         }
 
     @catch_exception
-    def reset(self, speed=None, wait=True, timeout=None):
+    def reset(self, speed=None, wait=True, timeout=None, x=200, y=0, z=150):
         if wait:
             self.set_servo_attach(wait=True, timeout=timeout)
-            self.set_position(x=200, y=0, z=150, speed=speed, wait=True, timeout=timeout)
+            self.set_position(x=x, y=y, z=z, speed=speed, wait=True, timeout=timeout)
             self.set_pump(False, wait=True, timeout=timeout)
             self.set_gripper(False, wait=True, timeout=timeout)
             self.set_wrist(90, wait=True, timeout=timeout)
@@ -659,7 +685,7 @@ class Swift(Pump, Keys, Gripper, Grove):
             except:
                 z = 0
             try:
-                speed = float(speed)
+                speed = int(speed)
             except:
                 speed = self._position[3]
             cmd = protocol.SET_POSITION_RELATIVE.format(x, y, z, speed)
@@ -681,6 +707,8 @@ class Swift(Pump, Keys, Gripper, Grove):
             except:
                 pass
             cmd = protocol.SET_POSITION.format(cmd, *self._position)
+        if timeout is None:
+            timeout = 10
         if wait:
             ret = self.send_cmd_sync(cmd, timeout=timeout)
             return _handle(ret)
@@ -985,6 +1013,42 @@ class Swift(Pump, Keys, Gripper, Grove):
             self.send_cmd_async(cmd, timeout=timeout, callback=functools.partial(_handle, _callback=callback))
 
     @catch_exception
+    def set_digital_output(self, pin=None, value=None, wait=True, timeout=None, callback=None):
+        def _handle(_ret, _callback=None):
+            _ret = _ret[0] if _ret != protocol.TIMEOUT else _ret
+            if callable(_callback):
+                _callback(_ret)
+            else:
+                return _ret
+
+        assert pin is not None and value is not None
+
+        cmd = protocol.SET_DIGITAL_OUTPUT.format(pin, value)
+        if wait:
+            ret = self.send_cmd_sync(cmd, timeout=timeout)
+            return _handle(ret)
+        else:
+            self.send_cmd_async(cmd, timeout=timeout, callback=functools.partial(_handle, _callback=callback))
+
+    @catch_exception
+    def set_digital_direction(self, pin=None, value=None, wait=True, timeout=None, callback=None):
+        def _handle(_ret, _callback=None):
+            _ret = _ret[0] if _ret != protocol.TIMEOUT else _ret
+            if callable(_callback):
+                _callback(_ret)
+            else:
+                return _ret
+
+        assert pin is not None and value is not None
+
+        cmd = protocol.SET_DIGITAL_DIRECTION.format(pin, value)
+        if wait:
+            ret = self.send_cmd_sync(cmd, timeout=timeout)
+            return _handle(ret)
+        else:
+            self.send_cmd_async(cmd, timeout=timeout, callback=functools.partial(_handle, _callback=callback))
+
+    @catch_exception
     def get_analog(self, pin=0, wait=True, timeout=None, callback=None):
         def _handle(_ret, _callback=None):
             if _ret[0] == protocol.OK:
@@ -1113,10 +1177,13 @@ class Swift(Pump, Keys, Gripper, Grove):
         def _handle(_ret, _key=None, _callback=None):
             if _ret[0] == protocol.OK:
                 if len(_ret) > 1:
-                    value = _ret[1]
-                    if value.startswith(('v', 'V')):
-                        value = bool(int(value[1]))
-                    setattr(self, _key, value)
+                    try:
+                        value = _ret[1]
+                        if value.startswith(('v', 'V')):
+                            value = bool(int(value[1]))
+                        setattr(self, _key, value)
+                    except:
+                        pass
             if callable(_callback):
                 _callback(self.is_moving)
             else:
@@ -1332,3 +1399,85 @@ class Swift(Pump, Keys, Gripper, Grove):
             self.send_cmd_async(cmd)
         return protocol.OK
 
+    @catch_exception
+    def coordinate_to_angles(self, x=None, y=None, z=None, wait=True, timeout=None, callback=None):
+        def _handle(_ret, _callback=None):
+            if _ret[0] == protocol.OK:
+                _ret = list(map(lambda i: float(i[1:]), _ret[1:]))
+            elif _ret != protocol.TIMEOUT:
+                _ret = _ret[0]
+            if callable(_callback):
+                _callback(_ret)
+            else:
+                return _ret
+
+        assert x is not None and y is not None and z is not None
+
+        cmd = protocol.COORDINATE_TO_ANGLES.format(x, y, z)
+        if wait:
+            ret = self.send_cmd_sync(cmd, timeout=timeout)
+            return _handle(ret)
+        else:
+            self.send_cmd_async(cmd, timeout=timeout, callback=functools.partial(_handle, _callback=callback))
+
+    @catch_exception
+    def angles_to_coordinate(self, angles=None, wait=True, timeout=None, callback=None):
+        def _handle(_ret, _callback=None):
+            if _ret[0] == protocol.OK:
+                _ret = list(map(lambda i: float(i[1:]), _ret[1:]))
+            elif _ret != protocol.TIMEOUT:
+                _ret = _ret[0]
+            if callable(_callback):
+                _callback(_ret)
+            else:
+                return _ret
+
+        assert isinstance(angles, (list, tuple)) and len(angles) >= 3
+
+        cmd = protocol.ANGLES_TO_COORDINATE.format(*angles[:3])
+        if wait:
+            ret = self.send_cmd_sync(cmd, timeout=timeout)
+            return _handle(ret)
+        else:
+            self.send_cmd_async(cmd, timeout=timeout, callback=functools.partial(_handle, _callback=callback))
+
+    @catch_exception
+    def check_pos_is_limit(self, pos=None, is_polar=False, wait=True, timeout=None, callback=None):
+        def _handle(_ret, _callback=None):
+            if _ret[0] == protocol.OK:
+                _ret = not bool(int(_ret[1][1]))
+            elif _ret != protocol.TIMEOUT:
+                _ret = _ret[0]
+            if callable(_callback):
+                _callback(_ret)
+            else:
+                return _ret
+
+        assert isinstance(pos, (list, tuple)) and len(pos) >= 3
+
+        cmd = protocol.CHECK_MOVE_LIMIT.format(*pos[:3], 1 if is_polar else 0)
+        if wait:
+            ret = self.send_cmd_sync(cmd, timeout=timeout)
+            return _handle(ret)
+        else:
+            self.send_cmd_async(cmd, timeout=timeout, callback=functools.partial(_handle, _callback=callback))
+
+    @catch_exception
+    def set_height_offset(self, offset='', wait=True, timeout=None, callback=None):
+        def _handle(_ret, _callback=None):
+            _ret = _ret[0] if _ret != protocol.TIMEOUT else _ret
+            if callable(_callback):
+                _callback(_ret)
+            else:
+                return _ret
+
+        if offset == '':
+            cmd = protocol.SET_HEIGHT_OFFSET.format(offset).split(' ')[0]
+        else:
+            cmd = protocol.SET_HEIGHT_OFFSET.format(offset)
+
+        if wait:
+            ret = self.send_cmd_sync(cmd, timeout=timeout)
+            return _handle(ret)
+        else:
+            self.send_cmd_async(cmd, timeout=timeout, callback=functools.partial(_handle, _callback=callback))
